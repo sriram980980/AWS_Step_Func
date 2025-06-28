@@ -88,9 +88,11 @@ Resources:
                   - states:StartExecution
                   - states:DescribeExecution
                   - states:StopExecution
+                  - states:ListStateMachines
+                  - states:DescribeStateMachine
                 Resource:
-                  - !Ref FileProcessingStateMachine
-                  - !Ref FileValidationStateMachine
+                  - !Sub 'arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:file-processing-${Environment}'
+                  - !Sub 'arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:file-validation-${Environment}'
               - Effect: Allow
                 Action:
                   - logs:CreateLogGroup
@@ -149,8 +151,6 @@ Resources:
           FILE_THRESHOLD: !Ref FileThreshold
           BATCH_SIZE: !Ref BatchSize
           ENVIRONMENT: !Ref Environment
-          FILE_PROCESSING_STATE_MACHINE_ARN: !Ref FileProcessingStateMachine
-          FILE_VALIDATION_STATE_MACHINE_ARN: !Ref FileValidationStateMachine
 
   # Lambda function for file validation
   FileValidationLambda:

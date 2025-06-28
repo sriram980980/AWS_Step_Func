@@ -1,13 +1,18 @@
 package com.example.s3processor.config;
 
 import software.amazon.awssdk.regions.Region;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.Properties;
 
 /**
  * Application configuration class
  */
 public class AppConfig {
     
-    // Environment variables and default values
+    private final Properties properties;
+    
+    // Default values
     private static final String DEFAULT_BUCKET_NAME = "s3-file-processor-bucket";
     private static final String DEFAULT_PENDING_PREFIX = "pending/";
     private static final String DEFAULT_PROCESSING_PREFIX = "processing/";
@@ -15,25 +20,62 @@ public class AppConfig {
     private static final int DEFAULT_FILE_THRESHOLD = 2000;
     private static final int DEFAULT_BATCH_SIZE = 100;
     
+    public AppConfig() {
+        this.properties = loadProperties();
+    }
+    
+    private Properties loadProperties() {
+        Properties props = new Properties();
+        String environment = System.getProperty("env", "dev");
+        
+        // Load environment-specific properties first
+        String configFile = "config-" + environment + ".properties";
+        try (InputStream input = AppConfig.class.getClassLoader().getResourceAsStream(configFile)) {
+            if (input != null) {
+                props.load(input);
+            }
+        } catch (IOException e) {
+            // Fall back to default properties
+        }
+        
+        // Load default application properties as fallback
+        try (InputStream input = AppConfig.class.getClassLoader().getResourceAsStream("application.properties")) {
+            if (input != null) {
+                Properties defaultProps = new Properties();
+                defaultProps.load(input);
+                // Add default properties only if not already set
+                for (String key : defaultProps.stringPropertyNames()) {
+                    if (!props.containsKey(key)) {
+                        props.setProperty(key, defaultProps.getProperty(key));
+                    }
+                }
+            }
+        } catch (IOException e) {
+            // Continue with current properties
+        }
+        
+        return props;
+    }
+    
     public String getBucketName() {
-        return getEnvVar("S3_BUCKET_NAME", DEFAULT_BUCKET_NAME);
+        return getProperty("s3.bucket.name", DEFAULT_BUCKET_NAME);
     }
     
     public String getPendingPrefix() {
-        return getEnvVar("PENDING_PREFIX", DEFAULT_PENDING_PREFIX);
+        return getProperty("s3.pending.prefix", DEFAULT_PENDING_PREFIX);
     }
     
     public String getProcessingPrefix() {
-        return getEnvVar("PROCESSING_PREFIX", DEFAULT_PROCESSING_PREFIX);
+        return getProperty("s3.processing.prefix", DEFAULT_PROCESSING_PREFIX);
     }
     
     public Region getAwsRegion() {
-        String regionName = getEnvVar("AWS_REGION", DEFAULT_REGION);
+        String regionName = getProperty("aws.region", DEFAULT_REGION);
         return Region.of(regionName);
     }
     
     public int getFileThreshold() {
-        String threshold = getEnvVar("FILE_THRESHOLD", String.valueOf(DEFAULT_FILE_THRESHOLD));
+        String threshold = getProperty("file.threshold", String.valueOf(DEFAULT_FILE_THRESHOLD));
         try {
             return Integer.parseInt(threshold);
         } catch (NumberFormatException e) {
@@ -42,7 +84,7 @@ public class AppConfig {
     }
     
     public int getBatchSize() {
-        String batchSize = getEnvVar("BATCH_SIZE", String.valueOf(DEFAULT_BATCH_SIZE));
+        String batchSize = getProperty("batch.size", String.valueOf(DEFAULT_BATCH_SIZE));
         try {
             return Integer.parseInt(batchSize);
         } catch (NumberFormatException e) {
@@ -51,40 +93,48 @@ public class AppConfig {
     }
     
     public String getFileProcessingStateMachineArn() {
-        return getEnvVar("FILE_PROCESSING_STATE_MACHINE_ARN", "");
+        return getProperty("stepfunctions.file.processing.arn", "");
     }
     
     public String getFileValidationStateMachineArn() {
-        return getEnvVar("FILE_VALIDATION_STATE_MACHINE_ARN", "");
+        return getProperty("stepfunctions.file.validation.arn", "");
     }
     
     public String getApiGatewayEndpoint() {
-        return getEnvVar("API_GATEWAY_ENDPOINT", "");
+        return getProperty("api.gateway.endpoint", "");
     }
     
     public String getScheduleExpression() {
-        return getEnvVar("SCHEDULE_EXPRESSION", "rate(10 minutes)");
+        return getProperty("schedule.expression", "rate(10 minutes)");
     }
     
     public boolean isScheduleEnabled() {
-        String enabled = getEnvVar("SCHEDULE_ENABLED", "true");
+        String enabled = getProperty("schedule.enabled", "true");
         return Boolean.parseBoolean(enabled);
     }
     
     public String getEnvironment() {
-        return getEnvVar("ENVIRONMENT", "dev");
+        return getProperty("environment", "dev");
     }
     
     public String getDeploymentBucket() {
-        return getEnvVar("DEPLOYMENT_BUCKET", "deployment-bucket-" + getEnvironment());
+        return getProperty("deployment.bucket", "deployment-bucket-" + getEnvironment());
     }
     
     /**
-     * Get environment variable with default fallback
+     * Get property with default fallback
      */
-    private String getEnvVar(String key, String defaultValue) {
-        String value = System.getenv(key);
-        return (value != null && !value.trim().isEmpty()) ? value : defaultValue;
+    private String getProperty(String key, String defaultValue) {
+        // First check environment variables (for Lambda runtime compatibility)
+        String envKey = key.toUpperCase().replace(".", "_");
+        String envValue = System.getenv(envKey);
+        if (envValue != null && !envValue.trim().isEmpty()) {
+            return envValue;
+        }
+        
+        // Then check properties file
+        String propValue = properties.getProperty(key);
+        return (propValue != null && !propValue.trim().isEmpty()) ? propValue : defaultValue;
     }
     
     /**

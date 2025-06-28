@@ -93,6 +93,8 @@ AWS_Step_Func/
 Before deploying, you must configure AWS credentials with named profiles for each environment:
 
 ```bash
+#if not installed already aws use 'winget install --id "Amazon.AWSCLI"' for windows 
+
 # Configure AWS credentials for development environment
 aws configure --profile dev-profile
 # Enter your AWS Access Key ID, Secret Access Key, and region
@@ -127,13 +129,15 @@ aws sts get-caller-identity --profile prod-profile
 
 **Required IAM Permissions:**
 Your AWS credentials need the following permissions:
-- CloudFormation: Create, update, delete stacks
+- CloudFormation: Create, update, delete stacks with IAM capabilities
 - Lambda: Create, update, delete functions
 - S3: Create, manage buckets and objects
 - Step Functions: Create, manage state machines
 - API Gateway: Create, manage REST APIs
-- IAM: Create, manage roles and policies
+- IAM: Create, manage roles and policies (requires CAPABILITY_NAMED_IAM)
 - CloudWatch: Create, manage logs and metrics
+
+**Important:** The CloudFormation stack requires `CAPABILITY_IAM` and `CAPABILITY_NAMED_IAM` capabilities because it creates named IAM roles. This is automatically handled by the deployment scripts and Gradle tasks using AWS CLI commands.
 
 ### Deployment Commands
 ```bash
@@ -210,6 +214,32 @@ scripts\cleanup.bat dev
 - ✅ **Troubleshooting guide** with common issues and solutions
 - ✅ **Architecture diagrams** and workflow explanations
 - ✅ **Configuration reference** for all environments
+
+## 🔧 **Troubleshooting Common Issues**
+
+### IAM Capabilities Error
+If you encounter: `Requires capabilities: [CAPABILITY_NAMED_IAM]`
+- **Cause**: The CloudFormation template creates named IAM roles
+- **Solution**: This is automatically handled by the deployment scripts
+- **Manual fix**: Add `--capabilities CAPABILITY_IAM CAPABILITY_NAMED_IAM` to CloudFormation commands
+
+### Circular Dependency Error
+If you encounter circular dependency errors:
+- **Cause**: Resources referencing each other in environment variables
+- **Solution**: The template has been fixed to use runtime discovery instead of hardcoded ARNs
+- **Verification**: Run `scripts\validate-template.bat` to check template validity
+
+### AWS Credentials Issues
+If deployment fails with credential errors:
+- **Check profile**: `aws configure list-profiles`
+- **Test access**: `aws sts get-caller-identity --profile your-profile`
+- **Verify permissions**: Ensure your user/role has CloudFormation and IAM permissions
+
+### S3 Bucket Name Conflicts
+If bucket creation fails:
+- **Cause**: S3 bucket names must be globally unique
+- **Solution**: The scripts automatically append account ID to bucket names
+- **Manual fix**: Update `s3.bucket.name` in config files with a unique suffix
 
 ## 🎉 **Project Highlights**
 

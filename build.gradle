@@ -103,14 +103,65 @@ task packageLambda(type: Zip) {
     destinationDirectory = file('build/distributions')
 }
 
+// Validate deployment prerequisites
+task validateDeployment {
+    doLast {
+        println "Validating deployment prerequisites for environment: ${env}"
+        
+        // Check AWS CLI is available
+        try {
+            exec {
+                commandLine 'aws', '--version'
+            }
+        } catch (Exception e) {
+            throw new GradleException("AWS CLI is not installed or not in PATH")
+        }
+        
+        // Check AWS credentials
+        try {
+            exec {
+                commandLine 'aws', 'sts', 'get-caller-identity',
+                    '--profile', aws.profileName,
+                    '--region', aws.region
+            }
+            println "AWS credentials validated for profile: ${aws.profileName}"
+        } catch (Exception e) {
+            throw new GradleException("AWS credentials not configured or invalid for profile: ${aws.profileName}")
+        }
+        
+        println "Deployment validation completed successfully"
+    }
+}
+
+// Create deployment bucket if it doesn't exist
+task createDeploymentBucket {
+    doLast {
+        def s3Bucket = getConfigProperty('deployment.bucket', "deployment-bucket-${env}")
+        println "Checking/creating deployment bucket: ${s3Bucket}"
+        
+        try {
+            exec {
+                commandLine 'aws', 's3', 'mb', "s3://${s3Bucket}",
+                    '--profile', aws.profileName,
+                    '--region', aws.region
+                ignoreExitValue = true
+            }
+        } catch (Exception e) {
+            println "Deployment bucket ${s3Bucket} may already exist or creation failed: ${e.message}"
+        }
+    }
+}
+
 // AWS deployment tasks
 task deployInfrastructure {
-    dependsOn packageLambda
+    dependsOn validateDeployment, packageLambda, createDeploymentBucket
     doLast {
         println "Deploying infrastructure for environment: ${env}"
         
         // Upload Lambda package to S3
         def s3Bucket = getConfigProperty('deployment.bucket', "deployment-bucket-${env}")
+        println "Uploading Lambda package to S3 bucket: ${s3Bucket}"
+        
         exec {
             commandLine 'aws', 's3', 'cp', 
                 'build/distributions/lambda-deployment.zip', 
@@ -118,20 +169,92 @@ task deployInfrastructure {
                 '--profile', aws.profileName,
                 '--region', aws.region
         }
+        
+        // Deploy CloudFormation stack with proper capabilities
+        def stackName = "s3-file-processor-${env}"
+        def bucketName = getConfigProperty('s3.bucket.name', "s3-file-processor-${env}-${System.currentTimeMillis()}")
+        
+        println "Deploying CloudFormation stack: ${stackName}"
+        println "Using profile: ${aws.profileName}, region: ${aws.region}"
+        println "S3 bucket: ${bucketName}"
+        
+        exec {
+            commandLine 'aws', 'cloudformation', 'deploy',
+                '--template-file', 'src/main/resources/cloudformation/main-stack.yml',
+                '--stack-name', stackName,
+                '--parameter-overrides', 
+                "Environment=${env} BucketName=${bucketName} FileThreshold=${getConfigProperty('file.threshold', '2000')} BatchSize=${getConfigProperty('batch.size', '100')} ScheduleExpression=${getConfigProperty('schedule.expression', 'rate(10 minutes)')}",
+                '--capabilities', 'CAPABILITY_IAM', 'CAPABILITY_NAMED_IAM',
+                '--profile', aws.profileName,
+                '--region', aws.region
+        }
+        
+        println "Deployment completed successfully for environment: ${env}"
     }
-    finalizedBy awsCfnDeploy
 }
 
 task validateTemplates {
     doLast {
         fileTree('src/main/resources/cloudformation').include('*.yml').each { file ->
             exec {
+                println "Validating CloudFormation template: ${file.name}"
+                println "Using AWS profile: ${aws.profileName}, region: ${aws.region}"
+                println "Template file path: ${file.absolutePath}"
                 commandLine 'aws', 'cloudformation', 'validate-template',
                     '--template-body', "file://${file.absolutePath}",
                     '--profile', aws.profileName,
                     '--region', aws.region
             }
         }
+    }
+}
+
+// Test deployment configuration without AWS calls
+task testDeploymentConfig {
+    doLast {
+        println "Testing deployment configuration for environment: ${env}"
+        println "Stack name: s3-file-processor-${env}"
+        println "S3 bucket: ${getConfigProperty('s3.bucket.name', "s3-file-processor-${env}-${System.currentTimeMillis()}")}"
+        println "Deployment bucket: ${getConfigProperty('deployment.bucket', "deployment-bucket-${env}")}"
+        println "AWS profile: ${aws.profileName}"
+        println "AWS region: ${aws.region}"
+        println "File threshold: ${getConfigProperty('file.threshold', '2000')}"
+        println "Batch size: ${getConfigProperty('batch.size', '100')}"
+        println "Schedule: ${getConfigProperty('schedule.expression', 'rate(10 minutes)')}"
+        println "Template file: src/main/resources/cloudformation/main-stack.yml"
+        
+        def templateFile = file('src/main/resources/cloudformation/main-stack.yml')
+        if (templateFile.exists()) {
+            println "✅ CloudFormation template found"
+        } else {
+            println "❌ CloudFormation template missing"
+        }
+        
+        def packageFile = file('build/distributions/lambda-deployment.zip')
+        if (packageFile.exists()) {
+            println "✅ Lambda package found"
+        } else {
+            println "⚠️  Lambda package not found - run packageLambda first"
+        }
+        
+        println "Deployment configuration test completed"
+    }
+}
+
+// Simple deployment test task (no AWS dependencies)
+task simpleDeployTest {
+    doLast {
+        println "=== Deployment Configuration Test ==="
+        println "Environment: ${env}"
+        println "AWS Profile: ${getConfigProperty('aws.profile', 'default')}"
+        println "AWS Region: ${getConfigProperty('aws.region', 'us-east-1')}"
+        println "S3 Bucket: ${getConfigProperty('s3.bucket.name', "s3-file-processor-${env}")}"
+        println "Deployment Bucket: ${getConfigProperty('deployment.bucket', "deployment-bucket-${env}")}"
+        
+        def templateFile = file('src/main/resources/cloudformation/main-stack.yml')
+        println "Template exists: ${templateFile.exists()}"
+        
+        println "=== Configuration loaded successfully ==="
     }
 }
 

@@ -5,8 +5,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import software.amazon.awssdk.services.sfn.SfnClient;
+import software.amazon.awssdk.services.sfn.model.ListStateMachinesRequest;
+import software.amazon.awssdk.services.sfn.model.ListStateMachinesResponse;
 import software.amazon.awssdk.services.sfn.model.StartExecutionRequest;
 import software.amazon.awssdk.services.sfn.model.StartExecutionResponse;
+import software.amazon.awssdk.services.sfn.model.StateMachineListItem;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -21,6 +24,8 @@ public class StepFunctionService {
     private final SfnClient stepFunctionsClient;
     private final AppConfig config;
     private final ObjectMapper objectMapper;
+    private String fileProcessingStateMachineArn;
+    private String fileValidationStateMachineArn;
     
     public StepFunctionService(AppConfig config) {
         this.config = config;
@@ -28,6 +33,8 @@ public class StepFunctionService {
                 .region(config.getAwsRegion())
                 .build();
         this.objectMapper = new ObjectMapper();
+        // Initialize state machine ARNs
+        initializeStateMachineArns();
     }
     
     // Constructor for testing
@@ -35,6 +42,46 @@ public class StepFunctionService {
         this.stepFunctionsClient = stepFunctionsClient;
         this.config = config;
         this.objectMapper = new ObjectMapper();
+        // Initialize state machine ARNs
+        initializeStateMachineArns();
+    }
+    
+    /**
+     * Initialize state machine ARNs by discovering them at runtime
+     */
+    private void initializeStateMachineArns() {
+        try {
+            ListStateMachinesResponse response = stepFunctionsClient.listStateMachines(
+                ListStateMachinesRequest.builder().build()
+            );
+            
+            String environment = config.getEnvironment();
+            String fileProcessingName = "file-processing-" + environment;
+            String fileValidationName = "file-validation-" + environment;
+            
+            for (StateMachineListItem stateMachine : response.stateMachines()) {
+                if (stateMachine.name().equals(fileProcessingName)) {
+                    this.fileProcessingStateMachineArn = stateMachine.stateMachineArn();
+                    logger.info("Found file processing state machine: {}", this.fileProcessingStateMachineArn);
+                } else if (stateMachine.name().equals(fileValidationName)) {
+                    this.fileValidationStateMachineArn = stateMachine.stateMachineArn();
+                    logger.info("Found file validation state machine: {}", this.fileValidationStateMachineArn);
+                }
+            }
+            
+            // Fallback to config if still not found
+            if (this.fileProcessingStateMachineArn == null) {
+                this.fileProcessingStateMachineArn = config.getFileProcessingStateMachineArn();
+            }
+            if (this.fileValidationStateMachineArn == null) {
+                this.fileValidationStateMachineArn = config.getFileValidationStateMachineArn();
+            }
+            
+        } catch (Exception e) {
+            logger.warn("Failed to discover state machine ARNs, using config values: {}", e.getMessage());
+            this.fileProcessingStateMachineArn = config.getFileProcessingStateMachineArn();
+            this.fileValidationStateMachineArn = config.getFileValidationStateMachineArn();
+        }
     }
     
     /**
@@ -54,7 +101,7 @@ public class StepFunctionService {
             
             // Start Step Function execution
             StartExecutionRequest request = StartExecutionRequest.builder()
-                    .stateMachineArn(config.getFileProcessingStateMachineArn())
+                    .stateMachineArn(this.fileProcessingStateMachineArn)
                     .input(inputJson)
                     .name("file-processing-" + System.currentTimeMillis())
                     .build();
@@ -85,7 +132,7 @@ public class StepFunctionService {
             
             // Start Step Function execution
             StartExecutionRequest request = StartExecutionRequest.builder()
-                    .stateMachineArn(config.getFileValidationStateMachineArn())
+                    .stateMachineArn(this.fileValidationStateMachineArn)
                     .input(inputJson)
                     .name("file-validation-" + System.currentTimeMillis())
                     .build();
@@ -109,7 +156,7 @@ public class StepFunctionService {
             String inputJson = objectMapper.writeValueAsString(parameters);
             
             StartExecutionRequest request = StartExecutionRequest.builder()
-                    .stateMachineArn(config.getFileProcessingStateMachineArn())
+                    .stateMachineArn(this.fileProcessingStateMachineArn)
                     .input(inputJson)
                     .name("batch-processing-" + System.currentTimeMillis())
                     .build();

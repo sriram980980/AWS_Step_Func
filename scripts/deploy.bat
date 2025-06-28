@@ -48,7 +48,7 @@ cd /d "%PROJECT_ROOT%"
 
 :: Clean and build the project
 echo [INFO] Building the project...
-call gradlew.bat clean build -Denv=%ENVIRONMENT%
+call gradlew.bat clean build -Denv=%ENVIRONMENT% --stacktrace
 if errorlevel 1 (
     echo [ERROR] Build failed
     exit /b 1
@@ -56,7 +56,7 @@ if errorlevel 1 (
 
 :: Validate CloudFormation templates
 echo [INFO] Validating CloudFormation templates...
-call gradlew.bat validateTemplates -Denv=%ENVIRONMENT%
+call gradlew.bat validateTemplates -Denv=%ENVIRONMENT% --stacktrace
 if errorlevel 1 (
     echo [ERROR] Template validation failed
     exit /b 1

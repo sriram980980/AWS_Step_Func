@@ -14,7 +14,7 @@ A Java-based AWS serverless application that monitors S3 buckets and processes f
 - **REST API**: Exposes endpoints for manual triggering and monitoring
 
 ## 🏗️ Architecture
-
+![alt text](image.png)
 ```
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
 │   API Gateway   │───▶│  S3 Monitor      │───▶│ Step Function 1 │

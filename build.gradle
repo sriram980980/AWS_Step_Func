@@ -77,7 +77,7 @@ cloudFormation {
     
     stackParams = [
         Environment: env,
-        BucketName: getConfigProperty('s3.bucket.name', "s3-file-processor-${env}-${System.currentTimeMillis()}"),
+        BucketName: "s3-file-processor-${env}-${System.currentTimeMillis()}-${(Math.random() * 1000).intValue()}",
         FileThreshold: getConfigProperty('file.threshold', '2000'),
         BatchSize: getConfigProperty('batch.size', '100'),
         ScheduleExpression: getConfigProperty('schedule.expression', 'rate(10 minutes)')
@@ -133,46 +133,104 @@ task validateDeployment {
     }
 }
 
+// Check AWS permissions for deployment
+task checkAwsPermissions {
+    doLast {
+        println "Checking AWS permissions for deployment..."
+        
+        def s3Bucket = getConfigProperty('deployment.bucket', "deployment-bucket_980_12${env}")
+        
+        // Test S3 permissions by trying to list buckets
+        try {
+            exec {
+                commandLine 'aws', 's3', 'ls',
+                    '--profile', aws.profileName,
+                    '--region', aws.region
+            }
+            println "✅ S3 list permissions verified"
+        } catch (Exception e) {
+            throw new GradleException("❌ No S3 list permissions. Check your AWS credentials and IAM policies.")
+        }
+        
+        // Test CloudFormation permissions
+        try {
+            exec {
+                commandLine 'aws', 'cloudformation', 'list-stacks',
+                    '--profile', aws.profileName,
+                    '--region', aws.region
+            }
+            println "✅ CloudFormation permissions verified"
+        } catch (Exception e) {
+            throw new GradleException("❌ No CloudFormation permissions. Check your AWS credentials and IAM policies.")
+        }
+        
+        println "AWS permissions check completed successfully"
+    }
+}
+
 // Create deployment bucket if it doesn't exist
 task createDeploymentBucket {
     doLast {
-        def s3Bucket = getConfigProperty('deployment.bucket', "deployment-bucket-${env}")
+        def s3Bucket = getConfigProperty('deployment.bucket', "deployment-bucket_980_12${env}")
         println "Checking/creating deployment bucket: ${s3Bucket}"
         
+        // First check if bucket exists
         try {
             exec {
-                commandLine 'aws', 's3', 'mb', "s3://${s3Bucket}",
+                commandLine 'aws', 's3', 'ls', "s3://${s3Bucket}",
                     '--profile', aws.profileName,
                     '--region', aws.region
-                ignoreExitValue = true
             }
+            println "Deployment bucket ${s3Bucket} already exists"
         } catch (Exception e) {
-            println "Deployment bucket ${s3Bucket} may already exist or creation failed: ${e.message}"
+            println "Deployment bucket ${s3Bucket} doesn't exist, creating..."
+            try {
+                exec {
+                    commandLine 'aws', 's3', 'mb', "s3://${s3Bucket}",
+                        '--profile', aws.profileName,
+                        '--region', aws.region
+                }
+                println "Successfully created deployment bucket: ${s3Bucket}"
+            } catch (Exception createError) {
+                throw new GradleException("Failed to create deployment bucket ${s3Bucket}: ${createError.message}")
+            }
         }
     }
 }
 
 // AWS deployment tasks
 task deployInfrastructure {
-    dependsOn validateDeployment, packageLambda, createDeploymentBucket
+    dependsOn checkAwsPermissions, validateDeployment, packageLambda, createDeploymentBucket
     doLast {
         println "Deploying infrastructure for environment: ${env}"
         
+        // Verify Lambda package exists
+        def packageFile = file('build/distributions/lambda-deployment.zip')
+        if (!packageFile.exists()) {
+            throw new GradleException("Lambda deployment package not found at: ${packageFile.absolutePath}")
+        }
+        println "Lambda package found: ${packageFile.absolutePath} (${packageFile.length()} bytes)"
+        
         // Upload Lambda package to S3
-        def s3Bucket = getConfigProperty('deployment.bucket', "deployment-bucket-${env}")
+        def s3Bucket = getConfigProperty('deployment.bucket', "deployment-bucket_980_12${env}")
         println "Uploading Lambda package to S3 bucket: ${s3Bucket}"
         
-        exec {
-            commandLine 'aws', 's3', 'cp', 
-                'build/distributions/lambda-deployment.zip', 
-                "s3://${s3Bucket}/lambda-deployment.zip",
-                '--profile', aws.profileName,
-                '--region', aws.region
+        try {
+            exec {
+                commandLine 'aws', 's3', 'cp', 
+                    'build/distributions/lambda-deployment.zip', 
+                    "s3://${s3Bucket}/lambda-deployment.zip",
+                    '--profile', aws.profileName,
+                    '--region', aws.region
+            }
+            println "Successfully uploaded Lambda package to S3"
+        } catch (Exception e) {
+            throw new GradleException("Failed to upload Lambda package to S3: ${e.message}")
         }
         
         // Deploy CloudFormation stack with proper capabilities
         def stackName = "s3-file-processor-${env}"
-        def bucketName = getConfigProperty('s3.bucket.name', "s3-file-processor-${env}-${System.currentTimeMillis()}")
+        def bucketName = "s3-file-processor-${env}-${System.currentTimeMillis()}-${(Math.random() * 1000).intValue()}"
         
         println "Deploying CloudFormation stack: ${stackName}"
         println "Using profile: ${aws.profileName}, region: ${aws.region}"
@@ -215,7 +273,7 @@ task testDeploymentConfig {
         println "Testing deployment configuration for environment: ${env}"
         println "Stack name: s3-file-processor-${env}"
         println "S3 bucket: ${getConfigProperty('s3.bucket.name', "s3-file-processor-${env}-${System.currentTimeMillis()}")}"
-        println "Deployment bucket: ${getConfigProperty('deployment.bucket', "deployment-bucket-${env}")}"
+        println "Deployment bucket: ${getConfigProperty('deployment.bucket', "deployment-bucket_980_12${env}")}"
         println "AWS profile: ${aws.profileName}"
         println "AWS region: ${aws.region}"
         println "File threshold: ${getConfigProperty('file.threshold', '2000')}"
@@ -249,12 +307,55 @@ task simpleDeployTest {
         println "AWS Profile: ${getConfigProperty('aws.profile', 'default')}"
         println "AWS Region: ${getConfigProperty('aws.region', 'us-east-1')}"
         println "S3 Bucket: ${getConfigProperty('s3.bucket.name', "s3-file-processor-${env}")}"
-        println "Deployment Bucket: ${getConfigProperty('deployment.bucket', "deployment-bucket-${env}")}"
+        println "Deployment Bucket: ${getConfigProperty('deployment.bucket', "deployment-bucket_980_12${env}")}"
         
         def templateFile = file('src/main/resources/cloudformation/main-stack.yml')
         println "Template exists: ${templateFile.exists()}"
         
         println "=== Configuration loaded successfully ==="
+    }
+}
+
+// Test task to check configuration and permissions
+task testAwsSetup {
+    doLast {
+        println "=== AWS Setup Test ==="
+        println "Environment: ${env}"
+        println "AWS Profile: ${aws.profileName}"
+        println "AWS Region: ${aws.region}"
+        
+        // Test AWS CLI and credentials
+        try {
+            def result = new ByteArrayOutputStream()
+            exec {
+                commandLine 'aws', 'sts', 'get-caller-identity',
+                    '--profile', aws.profileName,
+                    '--region', aws.region
+                standardOutput = result
+            }
+            println "✅ AWS Identity: ${result.toString().trim()}"
+        } catch (Exception e) {
+            println "❌ AWS credentials test failed: ${e.message}"
+            return
+        }
+        
+        // Check deployment bucket name
+        def s3Bucket = getConfigProperty('deployment.bucket', "deployment-bucket_980_12${env}")
+        println "Deployment bucket: ${s3Bucket}"
+        
+        // Test S3 access
+        try {
+            exec {
+                commandLine 'aws', 's3', 'ls',
+                    '--profile', aws.profileName,
+                    '--region', aws.region
+            }
+            println "✅ S3 access verified"
+        } catch (Exception e) {
+            println "❌ S3 access failed: ${e.message}"
+        }
+        
+        println "=== Test completed ==="
     }
 }
 

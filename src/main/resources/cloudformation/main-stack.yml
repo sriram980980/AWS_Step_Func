@@ -40,18 +40,6 @@ Resources:
         BlockPublicPolicy: true
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
-      NotificationConfiguration:
-        CloudWatchConfigurations:
-          - Event: s3:ObjectCreated:*
-            CloudWatchConfiguration:
-              LogGroupName: !Ref S3LogGroup
-  
-  # CloudWatch Log Group for S3 events
-  S3LogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub '/aws/s3/${BucketName}'
-      RetentionInDays: 30
 
   # IAM Role for Lambda functions
   LambdaExecutionRole:

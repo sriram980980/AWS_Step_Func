@@ -87,30 +87,81 @@ AWS_Step_Func/
 1. **Install Java 17+** (required for building)
 2. **Install AWS CLI** and configure credentials
 3. **Set up AWS accounts** for each environment
+4. **Configure AWS Credentials** with named profiles
+
+#### AWS Credentials Setup
+Before deploying, you must configure AWS credentials with named profiles for each environment:
+
+```bash
+# Configure AWS credentials for development environment
+aws configure --profile dev-profile
+# Enter your AWS Access Key ID, Secret Access Key, and region
+
+# Configure AWS credentials for staging environment  
+aws configure --profile staging-profile
+# Enter your AWS Access Key ID, Secret Access Key, and region
+
+# Configure AWS credentials for production environment
+aws configure --profile prod-profile
+# Enter your AWS Access Key ID, Secret Access Key, and region
+```
+
+**Alternative: Using AWS SSO or IAM Identity Center**
+```bash
+# For AWS SSO/Identity Center users
+aws configure sso --profile dev-profile
+aws configure sso --profile staging-profile
+aws configure sso --profile prod-profile
+```
+
+**Verify your profiles are configured correctly:**
+```bash
+# List all configured profiles
+aws configure list-profiles
+
+# Test profile access
+aws sts get-caller-identity --profile dev-profile
+aws sts get-caller-identity --profile staging-profile
+aws sts get-caller-identity --profile prod-profile
+```
+
+**Required IAM Permissions:**
+Your AWS credentials need the following permissions:
+- CloudFormation: Create, update, delete stacks
+- Lambda: Create, update, delete functions
+- S3: Create, manage buckets and objects
+- Step Functions: Create, manage state machines
+- API Gateway: Create, manage REST APIs
+- IAM: Create, manage roles and policies
+- CloudWatch: Create, manage logs and metrics
 
 ### Deployment Commands
 ```bash
-# For Development
-scripts\deploy.bat dev your-aws-profile
+# For Development (replace 'dev-profile' with your actual profile name)
+scripts\deploy.bat dev dev-profile
 
-# For Staging  
-scripts\deploy.bat staging your-aws-profile
+# For Staging (replace 'staging-profile' with your actual profile name)
+scripts\deploy.bat staging staging-profile
 
-# For Production
-scripts\deploy.bat prod your-aws-profile
+# For Production (replace 'prod-profile' with your actual profile name)
+scripts\deploy.bat prod prod-profile
 ```
+
+**Note:** Make sure to replace the profile names with the actual AWS profile names you configured in the prerequisites step.
 
 ### Testing the System
 ```bash
-# Upload test files
+# Upload test files (replace 'dev-profile' with your actual profile name)
 scripts\upload-test-files.bat dev 2100
 
-# Run tests
+# Run tests (replace 'dev-profile' with your actual profile name)
 scripts\test.bat dev
 
-# Clean up resources
+# Clean up resources (replace 'dev-profile' with your actual profile name)
 scripts\cleanup.bat dev
 ```
+
+**Important:** Ensure your AWS credentials have sufficient permissions and the correct region is set for each environment.
 
 ## 📊 **Monitoring & Operations**
 

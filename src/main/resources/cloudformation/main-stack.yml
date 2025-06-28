@@ -1,0 +1,423 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'S3 File Processor - Main Infrastructure Stack'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+    Description: Environment name
+  
+  BucketName:
+    Type: String
+    Description: S3 bucket name for file processing
+  
+  FileThreshold:
+    Type: Number
+    Default: 2000
+    Description: Minimum number of files to trigger processing
+  
+  BatchSize:
+    Type: Number
+    Default: 100
+    Description: Number of files per batch
+  
+  ScheduleExpression:
+    Type: String
+    Default: 'rate(10 minutes)'
+    Description: CloudWatch Events schedule expression
+
+Resources:
+  # S3 Bucket for file processing
+  S3ProcessingBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref BucketName
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      NotificationConfiguration:
+        CloudWatchConfigurations:
+          - Event: s3:ObjectCreated:*
+            CloudWatchConfiguration:
+              LogGroupName: !Ref S3LogGroup
+  
+  # CloudWatch Log Group for S3 events
+  S3LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/s3/${BucketName}'
+      RetentionInDays: 30
+
+  # IAM Role for Lambda functions
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 's3-processor-lambda-role-${Environment}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: S3ProcessorPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                  - s3:GetObjectMetadata
+                  - s3:CopyObject
+                Resource:
+                  - !Sub '${S3ProcessingBucket}/*'
+                  - !GetAtt S3ProcessingBucket.Arn
+              - Effect: Allow
+                Action:
+                  - states:StartExecution
+                  - states:DescribeExecution
+                  - states:StopExecution
+                Resource:
+                  - !Ref FileProcessingStateMachine
+                  - !Ref FileValidationStateMachine
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+
+  # IAM Role for Step Functions
+  StepFunctionExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 's3-processor-stepfunction-role-${Environment}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: StepFunctionPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource:
+                  - !GetAtt S3MonitorLambda.Arn
+                  - !GetAtt FileValidationLambda.Arn
+                  - !GetAtt FileBatchingLambda.Arn
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+
+  # Lambda function for S3 monitoring
+  S3MonitorLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 's3-monitor-${Environment}'
+      Runtime: java17
+      Handler: com.example.s3processor.lambda.S3MonitorLambda::handleRequest
+      Code:
+        ZipFile: |
+          // Placeholder - will be replaced during deployment
+          public class Placeholder { }
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 300
+      MemorySize: 512
+      Environment:
+        Variables:
+          S3_BUCKET_NAME: !Ref BucketName
+          FILE_THRESHOLD: !Ref FileThreshold
+          BATCH_SIZE: !Ref BatchSize
+          ENVIRONMENT: !Ref Environment
+          FILE_PROCESSING_STATE_MACHINE_ARN: !Ref FileProcessingStateMachine
+          FILE_VALIDATION_STATE_MACHINE_ARN: !Ref FileValidationStateMachine
+
+  # Lambda function for file validation
+  FileValidationLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'file-validation-${Environment}'
+      Runtime: java17
+      Handler: com.example.s3processor.lambda.FileValidationLambda::handleRequest
+      Code:
+        ZipFile: |
+          // Placeholder - will be replaced during deployment
+          public class Placeholder { }
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 300
+      MemorySize: 512
+      Environment:
+        Variables:
+          S3_BUCKET_NAME: !Ref BucketName
+          ENVIRONMENT: !Ref Environment
+
+  # Lambda function for file batching
+  FileBatchingLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub 'file-batching-${Environment}'
+      Runtime: java17
+      Handler: com.example.s3processor.lambda.FileBatchingLambda::handleRequest
+      Code:
+        ZipFile: |
+          // Placeholder - will be replaced during deployment
+          public class Placeholder { }
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 900
+      MemorySize: 1024
+      Environment:
+        Variables:
+          S3_BUCKET_NAME: !Ref BucketName
+          BATCH_SIZE: !Ref BatchSize
+          ENVIRONMENT: !Ref Environment
+
+  # Step Function for file processing workflow
+  FileProcessingStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub 'file-processing-${Environment}'
+      RoleArn: !GetAtt StepFunctionExecutionRole.Arn
+      DefinitionString: !Sub |
+        {
+          "Comment": "File processing workflow - moves and batches files from pending to processing",
+          "StartAt": "BatchFiles",
+          "States": {
+            "BatchFiles": {
+              "Type": "Task",
+              "Resource": "${FileBatchingLambda.Arn}",
+              "Next": "ValidateAllBatches",
+              "Retry": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "IntervalSeconds": 2,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2.0
+                }
+              ],
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "Next": "ProcessingFailed"
+                }
+              ]
+            },
+            "ValidateAllBatches": {
+              "Type": "Map",
+              "ItemsPath": "$.batchPrefixes",
+              "MaxConcurrency": 5,
+              "Iterator": {
+                "StartAt": "ValidateBatch",
+                "States": {
+                  "ValidateBatch": {
+                    "Type": "Task",
+                    "Resource": "${FileValidationLambda.Arn}",
+                    "End": true
+                  }
+                }
+              },
+              "Next": "ProcessingComplete",
+              "Catch": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "Next": "ValidationFailed"
+                }
+              ]
+            },
+            "ProcessingComplete": {
+              "Type": "Pass",
+              "Result": {
+                "status": "SUCCESS",
+                "message": "File processing completed successfully"
+              },
+              "End": true
+            },
+            "ProcessingFailed": {
+              "Type": "Pass",
+              "Result": {
+                "status": "FAILED",
+                "message": "File processing failed during batching"
+              },
+              "End": true
+            },
+            "ValidationFailed": {
+              "Type": "Pass",
+              "Result": {
+                "status": "FAILED",
+                "message": "File validation failed"
+              },
+              "End": true
+            }
+          }
+        }
+
+  # Step Function for file validation workflow
+  FileValidationStateMachine:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub 'file-validation-${Environment}'
+      RoleArn: !GetAtt StepFunctionExecutionRole.Arn
+      DefinitionString: !Sub |
+        {
+          "Comment": "File validation workflow - validates files in processing batches",
+          "StartAt": "ValidateFiles",
+          "States": {
+            "ValidateFiles": {
+              "Type": "Task",
+              "Resource": "${FileValidationLambda.Arn}",
+              "Next": "CheckValidationResult",
+              "Retry": [
+                {
+                  "ErrorEquals": ["States.ALL"],
+                  "IntervalSeconds": 2,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2.0
+                }
+              ]
+            },
+            "CheckValidationResult": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.isValid",
+                  "BooleanEquals": true,
+                  "Next": "ValidationSuccess"
+                }
+              ],
+              "Default": "ValidationFailed"
+            },
+            "ValidationSuccess": {
+              "Type": "Pass",
+              "Result": {
+                "status": "SUCCESS",
+                "message": "All files validated successfully"
+              },
+              "End": true
+            },
+            "ValidationFailed": {
+              "Type": "Pass",
+              "Result": {
+                "status": "FAILED",
+                "message": "File validation failed - empty or corrupted files detected"
+              },
+              "End": true
+            }
+          }
+        }
+
+  # API Gateway for REST endpoints
+  ApiGateway:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub 's3-processor-api-${Environment}'
+      Description: 'API Gateway for S3 File Processor'
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+
+  # API Gateway Resource
+  ApiResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ParentId: !GetAtt ApiGateway.RootResourceId
+      PathPart: 'monitor'
+
+  # API Gateway Method
+  ApiMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ApiGateway
+      ResourceId: !Ref ApiResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${S3MonitorLambda.Arn}/invocations'
+      MethodResponses:
+        - StatusCode: 200
+          ResponseModels:
+            application/json: Empty
+
+  # Lambda permission for API Gateway
+  LambdaApiGatewayPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref S3MonitorLambda
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGateway}/*/*'
+
+  # API Gateway Deployment
+  ApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn: ApiMethod
+    Properties:
+      RestApiId: !Ref ApiGateway
+      StageName: !Ref Environment
+
+  # CloudWatch Events Rule for scheduled execution
+  ScheduledRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub 's3-processor-schedule-${Environment}'
+      Description: 'Scheduled trigger for S3 file processor'
+      ScheduleExpression: !Ref ScheduleExpression
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt S3MonitorLambda.Arn
+          Id: S3MonitorTarget
+
+  # Lambda permission for CloudWatch Events
+  LambdaSchedulePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref S3MonitorLambda
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt ScheduledRule.Arn
+
+Outputs:
+  BucketName:
+    Description: 'S3 Bucket Name'
+    Value: !Ref S3ProcessingBucket
+    Export:
+      Name: !Sub '${Environment}-S3ProcessingBucket'
+
+  ApiEndpoint:
+    Description: 'API Gateway Endpoint'
+    Value: !Sub 'https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/monitor'
+    Export:
+      Name: !Sub '${Environment}-ApiEndpoint'
+
+  FileProcessingStateMachineArn:
+    Description: 'File Processing State Machine ARN'
+    Value: !Ref FileProcessingStateMachine
+    Export:
+      Name: !Sub '${Environment}-FileProcessingStateMachine'
+
+  FileValidationStateMachineArn:
+    Description: 'File Validation State Machine ARN'
+    Value: !Ref FileValidationStateMachine
+    Export:
+      Name: !Sub '${Environment}-FileValidationStateMachine'

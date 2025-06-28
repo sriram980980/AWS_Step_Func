@@ -1,0 +1,158 @@
+plugins {
+    id 'java'
+    id 'application'
+    id 'com.github.johnrengelman.shadow' version '8.1.1'
+    id 'jp.classmethod.aws.cloudformation' version '0.41'
+}
+
+group = 'com.example'
+version = '1.0.0'
+sourceCompatibility = '17'
+targetCompatibility = '17'
+
+repositories {
+    mavenCentral()
+}
+
+ext {
+    awsSdkVersion = '2.21.29'
+    jacksonVersion = '2.15.3'
+    junitVersion = '5.10.0'
+    logbackVersion = '1.4.11'
+    env = project.hasProperty('env') ? project.property('env') : 'dev'
+}
+
+dependencies {
+    implementation platform("software.amazon.awssdk:bom:${awsSdkVersion}")
+    implementation 'software.amazon.awssdk:s3'
+    implementation 'software.amazon.awssdk:lambda'
+    implementation 'software.amazon.awssdk:sfn'
+    implementation 'software.amazon.awssdk:cloudformation'
+    implementation 'software.amazon.awssdk:iam'
+    
+    implementation 'com.amazonaws:aws-lambda-java-core:1.2.3'
+    implementation 'com.amazonaws:aws-lambda-java-events:3.11.3'
+    
+    implementation "com.fasterxml.jackson.core:jackson-core:${jacksonVersion}"
+    implementation "com.fasterxml.jackson.core:jackson-databind:${jacksonVersion}"
+    implementation "com.fasterxml.jackson.core:jackson-annotations:${jacksonVersion}"
+    
+    implementation "ch.qos.logback:logback-classic:${logbackVersion}"
+    implementation 'org.slf4j:slf4j-api:2.0.9'
+    
+    testImplementation "org.junit.jupiter:junit-jupiter:${junitVersion}"
+    testImplementation 'org.mockito:mockito-core:5.6.0'
+    testImplementation 'org.mockito:mockito-junit-jupiter:5.6.0'
+}
+
+application {
+    mainClass = 'com.example.s3processor.lambda.S3MonitorLambda'
+}
+
+shadowJar {
+    archiveBaseName = 's3-file-processor'
+    archiveClassifier = ''
+    archiveVersion = ''
+    
+    // Exclude AWS SDK from the JAR if using Lambda runtime
+    dependencies {
+        exclude(dependency('software.amazon.awssdk:.*'))
+    }
+}
+
+test {
+    useJUnitPlatform()
+}
+
+// AWS CloudFormation plugin configuration
+aws {
+    region = getConfigProperty('aws.region', 'us-east-1')
+    profileName = getConfigProperty('aws.profile', 'default')
+}
+
+cloudFormation {
+    stackName = "s3-file-processor-${env}"
+    templateFile = file('src/main/resources/cloudformation/main-stack.yml')
+    capabilityIam = true
+    
+    stackParams = [
+        Environment: env,
+        BucketName: getConfigProperty('s3.bucket.name', "s3-file-processor-${env}-${System.currentTimeMillis()}"),
+        FileThreshold: getConfigProperty('file.threshold', '2000'),
+        BatchSize: getConfigProperty('batch.size', '100'),
+        ScheduleExpression: getConfigProperty('schedule.expression', 'rate(10 minutes)')
+    ]
+}
+
+// Helper function to get configuration properties
+def getConfigProperty(String key, String defaultValue) {
+    def configFile = file("src/main/resources/config-${env}.properties")
+    if (configFile.exists()) {
+        def props = new Properties()
+        configFile.withInputStream { props.load(it) }
+        return props.getProperty(key, defaultValue)
+    }
+    return defaultValue
+}
+
+// Custom tasks for deployment
+task packageLambda(type: Zip) {
+    dependsOn shadowJar
+    from shadowJar.outputs.files
+    archiveFileName = 'lambda-deployment.zip'
+    destinationDirectory = file('build/distributions')
+}
+
+// AWS deployment tasks
+task deployInfrastructure {
+    dependsOn packageLambda
+    doLast {
+        println "Deploying infrastructure for environment: ${env}"
+        
+        // Upload Lambda package to S3
+        def s3Bucket = getConfigProperty('deployment.bucket', "deployment-bucket-${env}")
+        exec {
+            commandLine 'aws', 's3', 'cp', 
+                'build/distributions/lambda-deployment.zip', 
+                "s3://${s3Bucket}/lambda-deployment.zip",
+                '--profile', aws.profileName,
+                '--region', aws.region
+        }
+    }
+    finalizedBy awsCfnDeploy
+}
+
+task validateTemplates {
+    doLast {
+        fileTree('src/main/resources/cloudformation').include('*.yml').each { file ->
+            exec {
+                commandLine 'aws', 'cloudformation', 'validate-template',
+                    '--template-body', "file://${file.absolutePath}",
+                    '--profile', aws.profileName,
+                    '--region', aws.region
+            }
+        }
+    }
+}
+
+// Environment-specific tasks
+task deployDev {
+    doFirst {
+        project.ext.env = 'dev'
+    }
+    finalizedBy deployInfrastructure
+}
+
+task deployStaging {
+    doFirst {
+        project.ext.env = 'staging'
+    }
+    finalizedBy deployInfrastructure
+}
+
+task deployProd {
+    doFirst {
+        project.ext.env = 'prod'
+    }
+    finalizedBy deployInfrastructure
+}

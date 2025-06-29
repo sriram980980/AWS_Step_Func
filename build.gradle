@@ -51,6 +51,25 @@ shadowJar {
     exclude 'META-INF/*.RSA'
 }
 
+task packageLambda(type: Zip, dependsOn: shadowJar) {
+    description = 'Package Lambda functions for deployment'
+    group = 'Build'
+
+    from(zipTree(shadowJar.outputs.files.singleFile)) {
+        into('/')
+    }
+
+    archiveFileName = 'lambda-deployment.zip'
+    destinationDirectory = file("${buildDir}/distributions")
+
+    doLast {
+        def zipFile = file("${buildDir}/distributions/lambda-deployment.zip")
+        logger.lifecycle("Lambda package created: ${zipFile.absolutePath} (${zipFile.length()} bytes)")
+    }
+}
+
+build.dependsOn packageLambda
+
 test {
     useJUnitPlatform()
     testLogging {
@@ -69,20 +88,3 @@ jacocoTestReport {
         html.required = true
     }
 }
-
-task packageLambda(type: Zip, dependsOn: shadowJar) {
-    description = 'Package Lambda functions for deployment'
-    group = 'Build'
-    
-    from shadowJar.outputs.files
-    archiveFileName = 'lambda-deployment.zip'
-    destinationDirectory = file("${buildDir}/distributions")
-    
-    doLast {
-        def zipFile = file("${buildDir}/distributions/lambda-deployment.zip")
-        logger.lifecycle("Lambda package created: ${zipFile.absolutePath} (${zipFile.length()} bytes)")
-    }
-}
-
-build.dependsOn shadowJar
-packageLambda.dependsOn build

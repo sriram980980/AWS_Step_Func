@@ -118,7 +118,7 @@ public class AppConfig {
     }
     
     public String getDeploymentBucket() {
-        return getProperty("deployment.bucket", "deployment-bucket_980_12" + getEnvironment());
+        return getProperty("deployment.bucket", "s3-file-processor-" + getEnvironment() + "-auto");
     }
     
     /**

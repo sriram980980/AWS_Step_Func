@@ -60,6 +60,7 @@ config-local.properties
 
 # Build artifacts
 build/
+!build/distributions/lambda-deployment.zip
 target/
 dist/
 

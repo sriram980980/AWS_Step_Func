@@ -5,7 +5,7 @@ This project uses Gradle for Java build and artifact packaging, and simple scrip
 ## 🏗️ Project Structure
 
 - **build.gradle**: Only builds Lambda/Step Function artifacts (no AWS deployment logic)
-- **scripts/**: Contains scripts for build, validate, deploy, and delete operations (both .bat and .sh)
+- **scripts/**: Contains scripts for build, validate, deploy, and delete operations (both .bat and .sh). The deploy script handles S3 bucket creation and pre-deployment cleanup.
 - **src/main/resources/cloudformation/main-stack.yml**: CloudFormation template
 
 ## 🚀 Usage

@@ -14,6 +14,7 @@ A Java-based AWS serverless application that monitors S3 buckets and processes f
 
 ## 🏗️ Architecture
 ![alt text](image.png)
+![alt text](image-1.png)
 ```
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
 │   API Gateway   │───▶│  S3 Monitor      │───▶│ Step Function 1 │
@@ -116,26 +117,24 @@ Configuration files are located in `src/main/resources/`:
 | `file.threshold` | Minimum files to trigger processing | 2000 |
 | `batch.size` | Files per batch | 100 |
 | `schedule.expression` | CloudWatch Events cron expression | `rate(10 minutes)` |
-| `s3.bucket.name` | S3 bucket name | `s3-file-processor-{env}-bucket` |
+| `s3.bucket.name` | S3 bucket name | `s3-file-processor-{env}-auto` |
 | `aws.region` | AWS region | `us-east-1` |
 
 ### Environment Variables (Lambda Runtime)
 
-| Variable | Description |
-|----------|-------------|
-| `S3_BUCKET_NAME` | S3 bucket name |
-| `FILE_THRESHOLD` | File count threshold |
-| `BATCH_SIZE` | Batch size for processing |
-| `ENVIRONMENT` | Environment name (dev/staging/prod) |
-| `FILE_PROCESSING_STATE_MACHINE_ARN` | Step Function ARN for processing |
-| `FILE_VALIDATION_STATE_MACHINE_ARN` | Step Function ARN for validation |
+| Variable | Description | Used By |
+|----------|-------------|---------|
+| `S3_BUCKET_NAME` | S3 bucket name | All Lambdas |
+| `FILE_THRESHOLD` | File count threshold | S3MonitorLambda |
+| `BATCH_SIZE` | Batch size for processing | S3MonitorLambda, FileBatchingLambda |
+| `ENVIRONMENT` | Environment name (dev/staging/prod) | All Lambdas |
 
 ## 🚀 Deployment Scripts Overview
 
-- **scripts/build-artifacts.bat / .sh**: Build and package Lambda artifact using Gradle
-- **scripts/validate-template.bat / .sh**: Validate CloudFormation template using AWS CLI
-- **scripts/deploy-stack.bat / .sh**: Upload artifact to S3 and deploy stack using AWS CLI
-- **scripts/delete-stack.bat / .sh**: Delete CloudFormation stack using AWS CLI
+- **scripts/build-artifacts.bat / .sh**: Build and package Lambda artifact using Gradle.
+- **scripts/validate-template.bat / .sh**: Validate CloudFormation template using AWS CLI.
+- **scripts/deploy-stack.bat / .sh**: Cleans up old stack, creates the deployment bucket if needed, uploads artifact to S3, and deploys the stack using AWS CLI.
+- **scripts/delete-stack.bat / .sh**: Delete CloudFormation stack using AWS CLI.
 
 ## 🗑️ Cleanup
 

@@ -204,12 +204,20 @@ Resources:
               "Type": "Map",
               "ItemsPath": "$.batchPrefixes",
               "MaxConcurrency": 5,
+              "Parameters": {
+                "bucketName.$": "$.bucketName",
+                "batchPrefix.$": "$$.Map.Item.Value"
+              },
               "Iterator": {
                 "StartAt": "ValidateBatch",
                 "States": {
                   "ValidateBatch": {
                     "Type": "Task",
-                    "Resource": "${FileValidationLambda.Arn}",
+                    "Resource": "arn:aws:states:::lambda:invoke",
+                    "Parameters": {
+                        "FunctionName": "${FileValidationLambda.Arn}",
+                        "Payload.$": "$"
+                    },
                     "End": true
                   }
                 }
